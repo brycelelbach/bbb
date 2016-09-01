@@ -17,7 +17,7 @@ from numpy import std, mean
 
 from os.path import splitext
 
-from re import match as regex_match
+from re import compile as regex_compile
 
 op = OptionParser(
     # Usage:  
@@ -106,29 +106,85 @@ def try_int_or_float(x):
     except ValueError:
         return x
 
+###############################################################################
+
 # Returns (tag, vtype) where tag is a string and vtype is an integer
-def parse_variable_classification(vc):
-    match = regex_match(r'([a-zA-Z0-9_]+)=((CTL)|(IND)|(DEP))', vc)
+class variable_classification_parser:
+    engine = None
 
-    if match is None:
-        print "ERROR: Variable classification (-v) '"+vc+"' is invalid, the "+\
-              "format is TAG=TYPE, where TAG is a variable tag and TYPE is "+\
-              "either CTL, IND or DEP."
-        exit(1)
+    ###########################################################################
+    # Grammar
 
-    return (match.group(1), str_to_vtype(match.group(2)))
+    def __init__(self):
+        # Parse a tag.
+        tag_rule = r'[a-zA-Z0-9_]+'
+
+        # Parse a variable type.
+        vtype_rule = r'(?:CTL)|(?:IND)|(?:DEP)'
+
+        # Parse a variable classification.        
+        variable_classification_rule = r'(' + tag_rule + r')'   \
+                                     + r'='                     \
+                                     + r'(' + vtype_rule + r')'
+
+        self.engine = regex_compile(variable_classification_rule)
+
+    ###########################################################################
+
+    def __call__(self, vc):
+        match = self.engine.match(vc)
+
+        if match is None:
+            print "ERROR: Variable classification (-v) '"+vc+"' is invalid, "+\
+                  "the format is TAG=TYPE, where TAG is a variable tag and "+\
+                  "TYPE is either CTL, IND or DEP."
+            exit(1)
+
+        return (match.group(1), str_to_vtype(match.group(2)))
+
+###############################################################################
+
+parse_variable_classification = variable_classification_parser()
+
+###############################################################################
 
 # Returns (tag, value) where tag is a string and vtype is an integer
-def parse_filter(fi):
-    match = regex_match(r'([a-zA-Z0-9_]+)=(.+)', fi)
+class filter_parser:
+    engine = None
 
-    if match is None:
-        print "ERROR: Filter '"+fi+"' is invalid, the format is TAG=VALUE, "+\
-              "where TAG is a variable tag and VALUE is a valid value for "+\
-              "the variable."
-        exit(1)
+    ###########################################################################
+    # Grammar
 
-    return (match.group(1), try_int_or_float(match.group(2)))
+    def __init__(self):
+        # Parse a tag.
+        tag_rule = r'[a-zA-Z0-9_]+'
+
+        # Parse a value.
+        value_rule = r'.+'
+
+        # Parse a filter.
+        filter_rule = r'(' + tag_rule + r')=(' + value_rule + r')'
+
+        self.engine = regex_compile(filter_rule)
+
+    ###########################################################################
+
+    def __call__(self, fi):
+        match = self.engine.match(fi)
+
+        if match is None:
+            print "ERROR: Filter '"+fi+"' is invalid, the format is "+\
+                  "TAG=VALUE, where TAG is a variable tag and VALUE is a valid"+\
+                  "value for the variable."
+            exit(1)
+
+        return (match.group(1), try_int_or_float(match.group(2)))
+
+###############################################################################
+
+parse_filter = filter_parser()
+
+###############################################################################
 
 class variable:
     index = -1
@@ -388,7 +444,6 @@ for (key, dataset) in sorted(master.iteritems()):
 
                 if sample_size is None:
                     sample_size = len(var)
-                    print sample_size
                 else:
                     if sample_size is not len(var):
                         missing = abs(len(var) - sample_size)
