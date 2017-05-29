@@ -17,6 +17,8 @@ from numpy import std, mean
 
 from os.path import splitext
 
+from statistics import stats
+
 from re import compile as regex_compile
 
 op = OptionParser(
@@ -105,6 +107,87 @@ def try_int_or_float(x):
             return float(x)
     except ValueError:
         return x
+
+def is_string_cell(s):
+    if not isinstance(s, str):
+        return False
+
+    # An empty string is at least two characters: ""
+    if len(s) < 2:
+        return False
+
+    if '"' == s[0] and '"' == s[-1]:
+        return True
+    else:
+        return False
+
+def try_remove_quotes(s):
+    if is_string_cell(s):
+        return s[1:-1]
+    else:
+        return s
+
+###############################################################################
+
+# We take a single line as an input, and need to produce a tuple of cells. The
+# input contains NO new lines and is NOT empty (so we assume it has at least
+# one cell). The delimiter between cells is whitespace and multiple whitespace
+# characters are collapsed. Cells which begin and end with quotations are
+# strings and may contain whitespace.
+#
+# Precondition: line has been strip()'d and is not an empty string
+class record_parser:
+    engine = None
+
+    ###########################################################################
+    # Grammar
+
+    def __init__(self):
+        # Parse a quote character.
+        quote_rule = r'["]'
+
+        # Parse a non-quote character or a quote character preceded by a
+        # backslash.
+        non_quote_rule = r'(?:[^"]|(?:\"))'
+
+        # Parse a string cell.
+        string_rule = quote_rule + non_quote_rule + r'*' + quote_rule
+
+        # Parse a whitespace character.
+        whitespace_rule = r'[ \t\r\n]'
+
+        # Parse a non-whitespace character.
+        non_whitespace_rule = r'[^ \t\r\n]'
+        
+        # Parse a cell.
+        cell_rule = r'(?:' + string_rule + r')'            \
+                  + r'|(?:' + non_whitespace_rule + r'+)'
+
+        # Parse a record
+        record_rule = r'(' + cell_rule + r')'           \
+                    + r'(?:(?:' + whitespace_rule + r'+)|$)'
+
+        self.engine = regex_compile(record_rule) 
+
+    ###########################################################################
+
+    def __call__(self, line):
+        record = []
+
+        match = self.engine.match(line)
+
+        while match is not None:
+            assert len(match.group(1)) is not 0
+            record.append(match.group(1))
+            match = self.engine.match(line, match.span()[1])
+
+        assert len(record) is not 0
+
+        return record
+
+###############################################################################
+
+parse_record = record_parser() 
 
 ###############################################################################
 
@@ -273,6 +356,7 @@ cvars  = None # CTLs
 civars = None # CTLs and INDs
 dvars  = None # DEPs
 
+legend_started = False
 legend_open = True
 legend_index = 0
 
@@ -286,8 +370,11 @@ try:
         # Parse the legend
 
         # Look for the legend 
-        if '#' == line[0]:
-            if '#' == line[1]:
+        if 0 < len(line) and '#' == line[0]:
+            if 1 < len(line) and '#' == line[1]:
+                if not legend_started:
+                    legend_started = True
+
                 # Chop off the ##
                 line = line[2:]
 
@@ -316,7 +403,9 @@ try:
 
                 legend_index = legend_index + 1
             else:
-                print >> output_data, line, 
+                # If the legend has not been closed, then preserve the comment.
+                if not legend_open and not legend_started:
+                    print >> output_data, line + "\n", 
             continue
 
         # Look for blank lines
@@ -382,7 +471,7 @@ try:
         #######################################################################
         # Parse data
 
-        row = line.split()
+        row = parse_record(line)
 
         if len(row) != legend_index:
             print "ERROR: Row '"+line+"' has only "+str(len(row))+" "+\
@@ -445,15 +534,15 @@ for (key, dataset) in sorted(master.iteritems()):
                 if sample_size is None:
                     sample_size = len(var)
                 else:
-                    if sample_size is not len(var):
+                    if sample_size != len(var):
                         missing = abs(len(var) - sample_size)
                         print "WARNING: Missing "+str(missing)+" sample(s) "+\
-                              "for ("+", ".join(str(x) for x in iv)+")"
+                              "for ("+", ".join(str(x) for x in iv)+")."
 
         if number_of_dvars is None:
             number_of_dvars = local_number_of_dvars 
         else:
-            assert number_of_dvars is local_number_of_dvars
+            assert number_of_dvars == local_number_of_dvars
 
 ###############################################################################
 # Print the legend for the output data file and generate the GPI header
@@ -463,8 +552,10 @@ post_index = 0
 for (vindex, v) in sorted(legend.iteritems()):
     assert CTL == v.vtype or IND == v.vtype or DEP == v.vtype
 
-    # For CTLs and INDs, we do no post-processing, so the 
+    # For CTLs and INDs, we do no post-processing
     if CTL == v.vtype or IND == v.vtype:
+        # FIXME: The only place we use this, we do i0 + 1, so shouldn't we just
+        # add 1 here? 
         i0 = post_index
 
         print >> output_data, '## %s:%s:%s:%s' \
@@ -476,18 +567,23 @@ for (vindex, v) in sorted(legend.iteritems()):
         post_index = post_index + 1
 
     else:
+        # FIXME: See above.
         i0 = post_index
         i1 = post_index + 1
+        i2 = post_index + 2
 
         print >> output_data, '## %s:%s_AVG:%s - Average of %i Samples:%s'\
                % (vtype_to_str(v.vtype), v.tag, v.name, sample_size, v.units)
-        print >> output_data, '## %s:%s_STD:%s - Standard Deviation:%s'\
+        print >> output_data, '## %s:%s_STD:%s - Sample Standard Deviation:%s'\
+               % (vtype_to_str(v.vtype), v.tag, v.name, v.units)
+        print >> output_data, '## %s:%s_CON:%s - 95%% Confidence Interval:%s'\
                % (vtype_to_str(v.vtype), v.tag, v.name, v.units)
 
         print >> output_header, '%s_AVG="%i"' % (v.tag, i0 + 1) 
         print >> output_header, '%s_STD="%i"' % (v.tag, i1 + 1)
+        print >> output_header, '%s_CON="%i"' % (v.tag, i2 + 1)
 
-        post_index = post_index + 2
+        post_index = post_index + 3
 
 ###############################################################################
 # Print the output data set
@@ -516,9 +612,9 @@ for (key, dataset) in sorted(master.iteritems()):
                 units = legend[cvars.indices[x]].units
 
                 if "" != units:
-                    units = " [" + units + "]"
+                    units = " ["+units+"]"
 
-                dist_keys.append(name + ": " + str(key[x]) + units)
+                dist_keys.append(name+": "+str(try_remove_quotes(key[x]))+units)
          
             print >> output_data, "\""+", ".join(dist_keys)+"\""
         else:
@@ -526,9 +622,9 @@ for (key, dataset) in sorted(master.iteritems()):
             units = legend[cvars.indices[dist_vars[0]]].units
 
             if "" != units:
-                units = " [" + units + "]"
+                units = " ["+units+"]"
 
-            dist_key = str(key[dist_vars[0]]) + units
+            dist_key = str(try_remove_quotes(key[dist_vars[0]])) + units
          
             print >> output_data, "\""+dist_key+"\""
 
@@ -536,7 +632,10 @@ for (key, dataset) in sorted(master.iteritems()):
     for (iv, vars) in sorted(dataset.iteritems()):
         for var in vars:
             if isinstance(var, list): # Dependent variable
-                print >> output_data, mean(var), std(var),
+                # 0.05 specifies a 95% confidence interval
+                avg, median, stdev, min, max, confidence = stats(var, 0.05)
+                print >> output_data, avg, stdev, confidence,
+                #print >> output_data, mean(var), std(var, ddof=1),
             else: # Independent or control variable
                 print >> output_data, var,
 

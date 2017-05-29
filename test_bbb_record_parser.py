@@ -17,7 +17,7 @@ from re import compile as regex_compile
 # one cell). The delimiter between cells is whitespace and multiple whitespace
 # characters are collapsed. Cells which begin and end with quotations are
 # strings and may contain whitespace.
-
+#
 # Precondition: line has been strip()'d and is not an empty string
 class record_parser:
     engine = None
@@ -27,16 +27,14 @@ class record_parser:
 
     def __init__(self):
         # Parse a quote character.
-        quote_rule = r'["\']'
+        quote_rule = r'["]'
 
         # Parse a non-quote character or a quote character preceded by a
         # backslash.
-        non_quote_rule = r'(?:.|(?:\\(?P=quote)))'
+        non_quote_rule = r'(?:[^"]|(?:\"))'
 
         # Parse a string cell.
-        string_rule = r'(?P<quote>' + quote_rule + r')' \
-                    + non_quote_rule + r'*?'            \
-                    + r'(?P=quote)'
+        string_rule = quote_rule + non_quote_rule + r'*' + quote_rule
 
         # Parse a whitespace character.
         whitespace_rule = r'[ \t\r\n]'
@@ -66,8 +64,6 @@ class record_parser:
             record.append(match.group(1))
             match = self.engine.match(line, match.span()[1])
 
-        print record
-
         assert len(record) is not 0
 
         return record
@@ -77,9 +73,6 @@ class record_parser:
 parse_record = record_parser() 
 
 ###############################################################################
-
-def print_function(v):
-    print v
 
 def should_assert(f, fail_msg):
     try:
@@ -211,44 +204,33 @@ should_assert(
 
 ###############################################################################
 
-print parse_record("'")
-print parse_record("''")
 print parse_record('"')
 print parse_record('""')
 
-print parse_record("\\\'")
-print parse_record("\\\"")
+print parse_record('\\')
+print parse_record('\\"')
+print parse_record('"\\""')
 
-print parse_record("'\\\''")
-print parse_record('"\\\""')
-print parse_record("'\\\"'")
-print parse_record('"\\\'"')
-
-print parse_record("3.14'")
-print parse_record("3.14''")
 print parse_record('3.14"')
 print parse_record('3.14""')
 
-print parse_record("'3.14")
-print parse_record("''3.14")
 print parse_record('"3.14')
 print parse_record('""3.14')
 
-print parse_record("3'14")
-print parse_record("3''14")
 print parse_record('3"14')
 print parse_record('3""14')
 
-print parse_record("'hello'")
-print parse_record("'hello world'")
-print parse_record("'hello' 'world'")
+print parse_record('3"1"4')
 
-print parse_record("'hello world' 17 3.14 true 1e-07")
-print parse_record("17 'hello world' 3.14 true 1e-07")
-print parse_record("17 3.14 'hello world' true 1e-07")
-print parse_record("17 3.14 true 'hello world' 1e-07")
-print parse_record("17 3.14 true 1e-07 'hello world'")
+print parse_record('"hello"')
+print parse_record('"hello world"')
+print parse_record('"hello" "world"')
 
-print parse_record("17 3.14 true 1e-07 'hello world' ")
+print parse_record('"hello world" 17 3.14 true 1e-07')
+print parse_record('17 "hello world" 3.14 true 1e-07')
+print parse_record('17 3.14 "hello world" true 1e-07')
+print parse_record('17 3.14 true "hello world" 1e-07')
+print parse_record('17 3.14 true 1e-07 "hello world"')
 
+print parse_record('17 3.14 true 1e-07 "hello world" ')
 
